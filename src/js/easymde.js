@@ -2340,15 +2340,18 @@ EasyMDE.prototype.render = function (el) {
                 ch: obj.to.ch,
             });
             var allowedHeadingLevels = cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels;
-            if (/^\s*#/.test(currHeading) && obj.from.line === obj.to.line && allowedHeadingLevels.indexOf('1') === -1) {
-                obj.cancel();
-                cm.doc.replaceRange(currHeading.replace('#','\\# '), {
-                    line: obj.from.line,
-                    ch: 0,
-                }, {
-                    line: obj.to.line,
-                    ch: obj.to.ch,
-                });
+            if (allowedHeadingLevels.indexOf('1') === -1 && /input/.test(obj.origin) && obj.from.line === obj.to.line && obj.text.length === 1) {
+                if (/^\s*#$/.test(currHeading) && obj.text[0] === ' ') {
+                    obj.cancel();
+                    cm.doc.replaceRange(currHeading.replace('#','\\# '), {
+                        line: obj.from.line,
+                        ch: 0,
+                    }, {
+                        line: obj.to.line,
+                        ch: obj.to.ch,
+                    });
+                    return false;
+                }
             }
             var myLevels = headingNeedUpdate(currHeading, allowedHeadingLevels);
             if (!myLevels || !myLevels.from || !myLevels.to) {
@@ -2382,6 +2385,27 @@ EasyMDE.prototype.render = function (el) {
             return true;
         };
         var headingCheckExisting = function(cm, obj) {
+            var myText = cm.getRange({
+                line: obj.from.line,
+                ch: 0,
+            }, {
+                line: obj.to.line,
+                ch: 8,
+            });
+            var allowedHeadingLevels = cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels;
+            if (allowedHeadingLevels.indexOf('1') === -1 && /input/.test(obj.origin) && obj.from.line === obj.to.line && obj.text.length === 1) {
+                if (/^\s+$/.test(myText) && obj.text[0] === '#') {
+                    obj.cancel();
+                    cm.doc.replaceRange(myText + '\\#', {
+                        line: obj.from.line,
+                        ch: 0,
+                    }, {
+                        line: obj.to.line,
+                        ch: 8,
+                    });
+                    return false;
+                }
+            }
             var myChar = cm.getRange({
                 line: obj.from.line,
                 ch: obj.from.ch,
@@ -2390,29 +2414,22 @@ EasyMDE.prototype.render = function (el) {
                 ch: obj.to.ch + 1,
             });
             if (!/\s|#/.test(myChar || '')) {
-                // Don't bother to go further if no headling were detected
+                // Don't bother to go further if no heading were detected
                 return false;
             }
             if ((obj.from.line === obj.to.line) && obj.text.length < 2) {
-                var myLevels, myText;
+                var myLevels;
                 if (/input/.test(obj.origin) && obj.text[0] === '#') {
                     if (!/[^\s#]/.test(myText)) {
                         // Newly created, skip the check for now
                         return false;
                     }
-                    myText = cm.getRange({
-                        line: obj.from.line,
-                        ch: 0,
-                    }, {
-                        line: obj.to.line,
-                        ch: 8,
-                    });
                     if (!/#/.test(myText)) {
                         myText = '# ' + myText.trim(); // Wasn't heading
                     } else {
                         myText = myText.replace(/#/, '##'); // Increment one sharp sign
                     }
-                    myLevels = headingNeedUpdate(myText, cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels);
+                    myLevels = headingNeedUpdate(myText, allowedHeadingLevels);
                     if (!myLevels) {
                         return false;
                     }
@@ -2471,7 +2488,7 @@ EasyMDE.prototype.render = function (el) {
                             ch: obj.to.ch + 8,
                         };
                     }
-                    myLevels = headingNeedUpdate(myText, cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels, searchDir);
+                    myLevels = headingNeedUpdate(myText, allowedHeadingLevels, searchDir);
                     if (!myLevels || !myLevels.diff) {
                         return false;
                     }
@@ -2653,6 +2670,32 @@ EasyMDE.prototype.render = function (el) {
                 }
             }
         });
+        if (options.parsingConfig.headingLevels.indexOf(1) === -1) {
+            // Thanks to https://stackoverflow.com/questions/32622128/codemirror-how-to-read-editor-text-before-or-after-cursor-position
+            this.codemirror.on('cursorActivity', function(cm) {
+                var currCursor = cm.doc.getCursor(),
+                    line = currCursor.line,
+                    ch = currCursor.ch,
+                    cursorString = cm.doc.getLine(line).substr(Math.max(ch-1,0),2);
+                    console.log(line + ':' + ch );
+                if (cursorString === '\\#' && currCursor.sticky) {
+                    if (currCursor.sticky === 'after') {
+                        cm.focus();
+                        cm.doc.setCursor({
+                            line: line,
+                            ch: Math.max(ch-1,0),
+                        });
+                    }
+                    else if (currCursor.sticky === 'before') {
+                        cm.focus();
+                        cm.doc.setCursor({
+                            line: line,
+                            ch: ch + 1,
+                        });
+                    }
+                }
+            });
+        }
     }
 
     this.gui = {};
