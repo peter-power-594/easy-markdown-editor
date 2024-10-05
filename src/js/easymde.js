@@ -1848,6 +1848,27 @@ function EasyMDE(options) {
             headingLevels[ l ] = requestedLevels[ l ];
         }
         options.parsingConfig.headingLevels = headingLevels.sort();
+        if (options.parsingConfig.headingLevels.length > 0 && !options.overlayMode) {
+            options.overlayMode = {
+                mode: {
+                    name: 'escsharp-mode',
+                    token: function (stream) {
+                        var ch = stream.peek();
+                        if (ch === '\\') {
+                            stream.next();
+                            ch = stream.peek();
+                            if (ch === '#') {
+                                stream.next();
+                                return 'sharp-escaped';
+                            }
+                        }
+                        stream.next();
+                        return null;
+                    },
+                },
+                combine: true,
+            };
+        }
     }
 
     // Merging the insertTexts, with the given options
@@ -2216,7 +2237,7 @@ EasyMDE.prototype.render = function (el) {
             cm.save();
         });
     }
-    if (options.parsingConfig.headingLevels) {
+    if (options.parsingConfig.headingLevels && options.parsingConfig.headingLevels.length) {
         // If the *headingLevels* argument is present, set our custom modifiers
         var headingMakeBigger = function(heading, from, to) {
             heading = heading || '';
@@ -2266,7 +2287,7 @@ EasyMDE.prototype.render = function (el) {
             if (!currHeading || !allowedHeadingLevels) {
                 return false;
             }
-            currHeading = currHeading.trim();
+            // currHeading = currHeading.trim();
             if (!/^#+/.test(currHeading)){
                 return false;
             }
@@ -2318,7 +2339,18 @@ EasyMDE.prototype.render = function (el) {
                 line: obj.to.line,
                 ch: obj.to.ch,
             });
-            var myLevels = headingNeedUpdate(currHeading, cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels);
+            var allowedHeadingLevels = cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels;
+            if (/^\s*#/.test(currHeading) && obj.from.line === obj.to.line && allowedHeadingLevels.indexOf('1') === -1) {
+                obj.cancel();
+                cm.doc.replaceRange(currHeading.replace('#','\\# '), {
+                    line: obj.from.line,
+                    ch: 0,
+                }, {
+                    line: obj.to.line,
+                    ch: obj.to.ch,
+                });
+            }
+            var myLevels = headingNeedUpdate(currHeading, allowedHeadingLevels);
             if (!myLevels || !myLevels.from || !myLevels.to) {
                 return false;
             }
@@ -2471,7 +2503,7 @@ EasyMDE.prototype.render = function (el) {
             if (!row || !/^#/.test(row.trim())) {
                 return row;
             }
-            row = row.replace(/^(\s*)#/, '#');
+            // row = row.replace(/^(\s*)#/, '#');
             var myLevels = headingNeedUpdate(row, cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels);
             if (!myLevels || !myLevels.from || !myLevels.to) {
                 return row;
@@ -2499,11 +2531,13 @@ EasyMDE.prototype.render = function (el) {
                     // As we are sure the cursor was not inside a range containing a sharp sign
                     return false;
                 }
+                /*
                 if (obj.from.ch === 0 && obj.to.ch === 0 && /\s/.test(obj.text[0] || '')) {
                     // (Force) Prevent space at the beginning of the line
                     obj.cancel();
                     return false;
                 }
+                */
                 if (/input/.test(obj.origin)) { // Something was added
                     if (obj.text.length === 1 && obj.text[0].length === 1) {
                         // Only one character on one line is being updated

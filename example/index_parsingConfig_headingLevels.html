@@ -8,6 +8,16 @@
     <title>Example / Preview / parsingConfig / headingLevels</title>
     <link rel="stylesheet" href="../dist/easymde.min.css">
     <script src="../dist/easymde.min.js"></script>
+    <style>
+        .CodeMirror-wrap pre.CodeMirror-line .cm-sharp-escaped,
+        .CodeMirror-wrap pre.CodeMirror-line-like .cm-sharp-escaped {
+            display: inline-flex;
+            justify-content: end;
+            width: 0.85em;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+    </style>
 </head>
 
 <body>
@@ -17,6 +27,7 @@ Quisque vitae orci eget quam auctor bibendum. Donec dapibus libero non tortor co
 ### Dolor Sit Amet</textarea>
     <script>
         const easyMDE = new EasyMDE({
+            spellChecker: false,
             parsingConfig: {
                 headingLevels: [ 5, 2, 3, 5 ]
             }
