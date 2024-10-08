@@ -994,7 +994,7 @@ function toggleSideBySide(editor) {
     }
 
     var sideBySideRenderingFunction = function () {
-        var newValue = editor.options.previewRender(editor.value(), preview);
+        var newValue = editor.options.previewRender(editor.options.markdownFilters.apply_filters(editor.value()), preview);
         if (newValue != null) {
             preview.innerHTML = newValue;
         }
@@ -1005,7 +1005,7 @@ function toggleSideBySide(editor) {
     }
 
     if (useSideBySideListener) {
-        var newValue = editor.options.previewRender(editor.value(), preview);
+        var newValue = editor.options.previewRender(editor.options.markdownFilters.apply_filters(editor.value()), preview);
         if (newValue != null) {
             preview.innerHTML = newValue;
         }
@@ -1074,7 +1074,7 @@ function togglePreview(editor) {
         }
     }
 
-    var preview_result = editor.options.previewRender(editor.value(), preview);
+    var preview_result = editor.options.previewRender(editor.options.markdownFilters.apply_filters(editor.value()), preview);
     if (preview_result !== null) {
         preview.innerHTML = preview_result;
     }
@@ -1821,21 +1821,51 @@ function EasyMDE(options) {
         }
     }
 
-
-    // Add default preview rendering function
-    if (!options.previewRender) {
-        options.previewRender = function (plainText) {
-            // Note: "this" refers to the options object
-            return this.parent.markdown(plainText);
+    // Generic mardown text render filter utility
+    options.markdownFilters = (function(){
+        var registered = {},
+            queue = [];
+        return {
+            add_filter: function(name, fnc) {
+                if (typeof fnc === 'function') {
+                    registered[name] = fnc;
+                    queue.push(name);
+                    return true;
+                }
+                return false;
+            },
+            apply_filter: function(name, text) {
+                if (registered[name] && typeof registered[name] === 'function') {
+                    return registered[name].call(this, text);
+                }
+                return text;
+            },
+            apply_filters: function(text) {
+                if (!queue || !queue.length) {
+                    return text;
+                }
+                for (var q=0,fncs=registered||[],max=queue.length; q<max; q++) {
+                    var idx = queue[q];
+                    if (fncs[idx] && typeof fncs[idx] === 'function') {
+                        text = fncs[idx].call(this, text);
+                    }
+                }
+                return text;
+            },
         };
-    }
+    })();
+    // The markdown module uses tabs as indent. Switch to tabs for the preview to render properly
+    options.markdownFilters.add_filter( 'tab2space', function(text) {
+        var indents = text.match(/\n\s+/g) || [];
+        for (var i=0,tmp; i<indents.length; i++) {
+            tmp = indents[i].replace(' ', "\t");
+            text = text.replace(indents[i], tmp);
+        }
+        return text;
+    });
 
-
-    // Set default options for parsing config
-    options.parsingConfig = extend({
-        highlightFormatting: true, // needed for toggleCodeBlock to detect types of code
-    }, options.parsingConfig || {});
-    if ( options.parsingConfig.headingLevels ) {
+    // Selective headings levels
+    if (options.parsingConfig && options.parsingConfig.headingLevels) {
         var headingLevels = [];
         for ( var l = 0, requestedLevels = options.parsingConfig.headingLevels; l < requestedLevels.length; l++ ) {
             requestedLevels[ l ] = parseInt( requestedLevels[ l ], 10 );
@@ -1852,7 +1882,7 @@ function EasyMDE(options) {
             options.overlayMode = {
                 mode: {
                     name: 'escsharp-mode',
-                    token: function (stream) {
+                    token: function(stream) {
                         var ch = stream.peek();
                         if (ch === '\\') {
                             stream.next();
@@ -1869,7 +1899,34 @@ function EasyMDE(options) {
                 combine: true,
             };
         }
+        options.markdownFilters.add_filter('sharp_list', function(text){
+            // Quick trick to trigger order list rendering
+            return text.replace(/\\#([^#]{1})/g, '1.$1');
+        });
     }
+
+    // Add default preview rendering function
+    if (!options.previewRender) {
+        if (options.previewRenderedMarkdown) {
+            options.previewRender = function (plainText, preview) {
+                plainText = options.markdownFilters.apply_filters(plainText);
+                return options.previewRenderedMarkdown(this.parent.markdown(plainText), preview);
+            };
+        }
+        else {
+            options.previewRender = function (plainText) {
+                // Note: "this" refers to the options object
+                plainText = options.markdownFilters.apply_filters(plainText);
+                return this.parent.markdown(plainText);
+            };
+        }
+    }
+
+
+    // Set default options for parsing config
+    options.parsingConfig = extend({
+        highlightFormatting: true, // needed for toggleCodeBlock to detect types of code
+    }, options.parsingConfig || {});
 
     // Merging the insertTexts, with the given options
     options.insertTexts = extend({}, insertTexts, options.insertTexts || {});
@@ -2385,23 +2442,59 @@ EasyMDE.prototype.render = function (el) {
             return true;
         };
         var headingCheckExisting = function(cm, obj) {
-            var myText = cm.getRange({
-                line: obj.from.line,
-                ch: 0,
-            }, {
-                line: obj.to.line,
-                ch: 8,
-            });
-            var allowedHeadingLevels = cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels;
-            if (allowedHeadingLevels.indexOf('1') === -1 && /input/.test(obj.origin) && obj.from.line === obj.to.line && obj.text.length === 1) {
-                if (/^\s+$/.test(myText) && obj.text[0] === '#') {
+            var myText,
+                allowedHeadingLevels = cm.options.backdrop ? cm.options.backdrop.headingLevels : cm.options.mode.headingLevels;
+            if (allowedHeadingLevels.indexOf('1') === -1 && obj.from.line === obj.to.line && obj.text.length === 1) {
+                myText = cm.getRange({
+                    line: obj.from.line,
+                    ch: 0,
+                }, {
+                    line: obj.to.line,
+                    ch: obj.to.ch,
+                });
+                if (/input/.test(obj.origin || '') ) {
+                    if (/^\s+$/.test(myText) && obj.text[0] === '#') {
+                        obj.cancel();
+                        cm.doc.replaceRange(myText+'\\#', {
+                            line: obj.from.line,
+                            ch: 0,
+                        }, {
+                            line: obj.to.line,
+                            ch: obj.to.ch,
+                        });
+                        return false;
+                    }
+                    else if (myText === '' && obj.text[0] === '#') {
+                        obj.cancel();
+                        cm.doc.replaceRange('\\#', {
+                            line: obj.from.line,
+                            ch: 0,
+                        }, {
+                            line: obj.to.line,
+                            ch: obj.to.ch,
+                        });
+                        return false;
+                    }
+                    else if (/^\s*\\#$/.test(myText) && obj.text[0] === '#') {
+                        obj.cancel();
+                        cm.doc.replaceRange(myText.replace('\\', '') + '#', {
+                            line: obj.from.line,
+                            ch: 0,
+                        }, {
+                            line: obj.to.line,
+                            ch: obj.to.ch,
+                        });
+                        return false;
+                    }
+                }
+                else if (/delete/.test(obj.origin || '') && /^\s*\\#$/.test(myText) && obj.text[0] === '') {
                     obj.cancel();
-                    cm.doc.replaceRange(myText + '\\#', {
+                    cm.doc.replaceRange(myText.replace('\\#',''), {
                         line: obj.from.line,
                         ch: 0,
                     }, {
                         line: obj.to.line,
-                        ch: 8,
+                        ch: obj.to.ch,
                     });
                     return false;
                 }
@@ -2419,6 +2512,13 @@ EasyMDE.prototype.render = function (el) {
             }
             if ((obj.from.line === obj.to.line) && obj.text.length < 2) {
                 var myLevels;
+                myText = cm.getRange({
+                    line: obj.from.line,
+                    ch: 0,
+                }, {
+                    line: obj.to.line,
+                    ch: 8,
+                });
                 if (/input/.test(obj.origin) && obj.text[0] === '#') {
                     if (!/[^\s#]/.test(myText)) {
                         // Newly created, skip the check for now
@@ -2671,13 +2771,13 @@ EasyMDE.prototype.render = function (el) {
             }
         });
         if (options.parsingConfig.headingLevels.indexOf(1) === -1) {
+            // Modify the cursor behavior to avoid being in the middle of \# (|\# {->} \#| or \#| {<-} |\#)
             // Thanks to https://stackoverflow.com/questions/32622128/codemirror-how-to-read-editor-text-before-or-after-cursor-position
             this.codemirror.on('cursorActivity', function(cm) {
                 var currCursor = cm.doc.getCursor(),
                     line = currCursor.line,
                     ch = currCursor.ch,
                     cursorString = cm.doc.getLine(line).substr(Math.max(ch-1,0),2);
-                    console.log(line + ':' + ch );
                 if (cursorString === '\\#' && currCursor.sticky) {
                     if (currCursor.sticky === 'after') {
                         cm.focus();
@@ -2690,7 +2790,46 @@ EasyMDE.prototype.render = function (el) {
                         cm.focus();
                         cm.doc.setCursor({
                             line: line,
-                            ch: ch + 1,
+                            ch: ch+1,
+                        });
+                    }
+                }
+            });
+            // Make the \# sharp combo behaves as a list
+            this.codemirror.on('keyHandled', function(cm, kn, ev) {
+                if (!kn || kn !== 'Enter' || !ev) {
+                    return true;
+                }
+                var currCursor = cm.doc.getCursor(),
+                    prevLine = currCursor.line - 1;
+                if (prevLine < 0) {
+                    return true;
+                }
+                var prevText = cm.getRange({
+                    line: prevLine,
+                    ch: 0,
+                }, {
+                    line: prevLine,
+                    ch: 20,
+                });
+                if (/^[ ]*\\#[ ]*/.test(prevText)) {
+                    var newTextLine = prevText.match(/^[ ]*\\#[ ]*/)[0];
+                    cm.doc.replaceRange(newTextLine, {
+                        line: currCursor.line,
+                        ch: 0,
+                    }, {
+                        line: currCursor.line,
+                        ch: newTextLine.length,
+                    });
+                } else if (/^ +/.test(prevText)) {
+                    var spaces = prevText.match(/ +/);
+                    if (spaces.length) {
+                        cm.doc.replaceRange(' '.repeat(spaces.length), {
+                            line: currCursor.line,
+                            ch: 0,
+                        }, {
+                            line: currCursor.line,
+                            ch: 0 + spaces.length,
                         });
                     }
                 }
@@ -3375,6 +3514,7 @@ EasyMDE.prototype.value = function (val) {
         if (this.isPreviewActive()) {
             var wrapper = cm.getWrapperElement();
             var preview = wrapper.lastChild;
+            val = this.options.markdownFilters.apply_filters(val);
             var preview_result = this.options.previewRender(val, preview);
             if (preview_result !== null) {
                 preview.innerHTML = preview_result;
