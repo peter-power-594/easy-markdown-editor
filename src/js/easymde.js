@@ -1858,7 +1858,7 @@ function EasyMDE(options) {
     options.markdownFilters.add_filter( 'tab2space', function(text) {
         var indents = text.match(/\n\s+/g) || [];
         for (var i=0,tmp; i<indents.length; i++) {
-            tmp = indents[i].replace(' ', "\t");
+            tmp = indents[i].replace(' ', '\t');
             text = text.replace(indents[i], tmp);
         }
         return text;
@@ -2227,9 +2227,14 @@ EasyMDE.prototype.render = function (el) {
         CodeMirror.defineMode('overlay-mode', function (config) {
             return CodeMirror.overlayMode(CodeMirror.getMode(config, options.spellChecker !== false ? 'spell-checker' : 'gfm'), options.overlayMode.mode, options.overlayMode.combine);
         });
-
         mode = 'overlay-mode';
         backdrop = options.parsingConfig;
+        backdrop.name = 'gfm';
+        backdrop.gitHubSpice = false;
+    } else if (options.spellChecker !== false) {
+        mode = 'spell-checker';
+        backdrop = options.parsingConfig;
+        backdrop.name = 'gfm';
         backdrop.gitHubSpice = false;
     } else {
         mode = options.parsingConfig;
@@ -2237,11 +2242,6 @@ EasyMDE.prototype.render = function (el) {
         mode.gitHubSpice = false;
     }
     if (options.spellChecker !== false) {
-        mode = 'spell-checker';
-        backdrop = options.parsingConfig;
-        backdrop.name = 'gfm';
-        backdrop.gitHubSpice = false;
-
         if (typeof options.spellChecker === 'function') {
             options.spellChecker({
                 codeMirrorInstance: CodeMirror,
