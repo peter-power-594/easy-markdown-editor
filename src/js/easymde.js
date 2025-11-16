@@ -2149,7 +2149,7 @@ EasyMDE.prototype.markdown = function (text) {
         }
 
         // Set options
-        marked.setOptions(markedOptions);
+        marked.use(markedOptions);
 
         // Convert the markdown to HTML
         var htmlText = marked.parse(text);
@@ -2897,7 +2897,7 @@ EasyMDE.prototype.render = function (el) {
                 return;
             }
             if (!parentEl.hasAttribute('data-img-src')) {
-                var srcAttr = parentEl.innerText.match('\\((.*)\\)'); // might require better parsing according to markdown spec
+                var srcAttr = parentEl.innerText.match(/!\[.*?\]\((.*?)\)/); // might require better parsing according to markdown spec
                 if (!window.EMDEimagesCache) {
                     window.EMDEimagesCache = {};
                 }
